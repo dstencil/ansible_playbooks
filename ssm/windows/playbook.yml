@@ -1,0 +1,57 @@
+---
+- name: Register SSM Agent with ssm-setup-cli
+  hosts: windows
+  gather_facts: no
+  vars:
+    region: us-east-1
+    activation_id: ""
+    activation_code: ""
+    temp_dir: "C:\\Windows\\Temp\\ssm"
+    setup_cli_path: "{{ temp_dir }}\\ssm-setup-cli.exe"
+    ssm_url: "https://amazon-ssm-{{ region }}.s3.{{ region }}.amazonaws.com/latest/windows_amd64/ssm-setup-cli.exe"
+
+    # optional proxy
+    http_proxy: "http://192.168.1.10:3128"
+    https_proxy: "http://192.168.1.10:3128"
+  tasks:
+  - name: Set environment proxy variables (optional)
+    set_fact:
+      env_proxy:
+        http_proxy: "{{ http_proxy }}"
+        https_proxy: "{{ https_proxy }}"
+    when: http_proxy | length > 0
+  - name: Install and register SSM Agent with ssm-setup-cli
+    ansible.windows.win_shell: |
+      [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+      $code = "{{ activation_code }}"
+      $id = "{{ activation_id }}"
+      $region = "{{ region }}"
+      $dir = $env:TEMP + "\ssm"
+      New-Item -ItemType Directory -Path $dir -Force | Out-Null
+      Set-Location -Path $dir
+      (New-Object System.Net.WebClient).DownloadFile("https://amazon-ssm-$region.s3.$region.amazonaws.com/latest/windows_amd64/ssm-setup-cli.exe", "$dir\ssm-setup-cli.exe")
+      & "$dir\ssm-setup-cli.exe" -register -activation-code="$code" -activation-id="$id" -region="$region"
+      Get-Content "$env:ProgramData\Amazon\SSM\InstanceData\registration"
+      Get-Service -Name "AmazonSSMAgent"
+
+    environment: "{{ env_proxy | default({}) }}"
+
+  - name: Show registration file contents
+    ansible.windows.win_shell: |
+      Get-Content "$env:ProgramData\Amazon\SSM\InstanceData\registration"
+
+    register: reginfo
+
+  - name: Output ManagedInstanceID
+    debug:
+      msg: "{{ reginfo.stdout_lines }}"
+
+  - name: Confirm SSM Agent is running
+    ansible.windows.win_service:
+      name: AmazonSSMAgent
+    register: agent_status
+
+  - name: Show agent status
+    debug:
+      var: agent_status
+

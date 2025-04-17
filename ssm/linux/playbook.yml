@@ -1,0 +1,38 @@
+- hosts: linux
+  become: true
+  become_method: sudo
+  vars:
+    region: us-east-1
+    ssm_activation_id: ""
+    ssm_activation_code: ""
+    
+  tasks:
+    - name: Install Amazon SSM agent
+      ansible.builtin.include_role:
+        name: amazon_ssm_agent
+    - name: Create temporary SSM setup directory
+      file:
+        path: /tmp/ssm
+        state: directory
+        mode: '0755'
+
+    - name: Download ssm-setup-cli
+      get_url:
+        url: "https://amazon-ssm-{{ region }}.s3.{{ region }}.amazonaws.com/latest/debian_arm/ssm-setup-cli"
+        dest: /tmp/ssm/ssm-setup-cli
+        mode: '0755'
+
+    - name: Register instance with SSM
+      command:
+        /tmp/ssm/ssm-setup-cli -register
+        -activation-code "{{ ssm_activation_code }}"
+        -activation-id "{{ ssm_activation_id }}"
+        -region "{{ region }}"
+      args:
+        creates: /var/lib/amazon/ssm/registration
+    - name: Ensure SSM agent is running
+      systemd:
+        name: amazon-ssm-agent
+        enabled: yes
+        state: started
+
